@@ -33,21 +33,24 @@ def generate_qrcode(text, filename, logo_path=None):
 
     img.save(filename) 
 
-def get_unique_filename(base_name="qrcode", extension="png"):
+def get_unique_filename(folder, base_name="qrcode", extension="png"):
     """Generate a unique filename by incrementing a number."""
     counter = 1
     while True:
-        filename = f"{base_name}{counter}.{extension}"
+        filename = os.path.join(folder, f"{base_name}{counter}.{extension}")
         if not os.path.exists(filename):
             return filename
         counter += 1
 
 if __name__ == "__main__":
+    file_path = 'G:/opportunities/ALX/CHEEMBA/backend/qrcodes'
+    
+    os.makedirs(file_path, exist_ok=True)
     code = generate_code() 
     print(f"Generated code: {code}")
-    filename = get_unique_filename()
+ 
+    filename = get_unique_filename(file_path)
     logo_path = "logo.png" 
     generate_qrcode(code, filename, logo_path) 
     
-    file_path = 'G:/opportunities/ALX/CHEEMBA/backend/qrcodes',
-    print(f"QR code saved as '{filename}' at location: {file_path}")
+    print(f"QR code saved as '{filename}'")
