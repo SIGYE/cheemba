@@ -1,3 +1,5 @@
+import datetime
+import random
 from flask import Flask, jsonify, request, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
@@ -24,7 +26,31 @@ class User(db.Model):
     location = db.Column(db.String(200), unique=True, nullable=False)
     ch_code = db.Column(db.String(250), unique=True, nullable=False)
     marital_status = db.Column(db.String(30), unique=False, nullable=False)
+    phone_number = db.Column(db.String(15), unique=True, nullable=False)
+    is_phone_verified = db.Column(db.Boolean, default=False, nullable=False)
 
+class PhoneVerification(db.Model):
+    __tablename__ = "phone_verification"
+    id = db.Column(db.Integer, primary_key=True)
+    phone_number = db.Column(db.String(15), unique=True, nullable=False)
+    verification_code = db.Column(db.String(6), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+    user = db.relationship('User', backref=db.backref('phone_verifications', lazy=True))
+
+
+class Notifications(db.Model):  # Class names should follow CamelCase by convention
+    __tablename__ = "notifications"
+    id = db.Column(db.Integer, primary_key=True)  # Add a primary key
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    message = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('notifications', lazy=True))
+
+
+    user = db.relationship('User', backref=db.backref('notifications', lazy=True))
 # Initialize the database
 with auth.app_context():
     db.create_all()
@@ -39,9 +65,10 @@ def signup():
     location = data.get('location')
     password = data.get('password')
     ch_code = data.get('ch_code')
+    phone_number = data.get('phone_number')
 
     # Check if all required fields are provided
-    if not all([name, email, marital_status, location, password, ch_code]):
+    if not all([name, email, marital_status, location, password, ch_code, phone_number]):
         return jsonify({'message': 'All fields are required'}), 400
 
     # Check if the username or email already exists
@@ -60,7 +87,8 @@ def signup():
         marital_status=marital_status,
         location=location,
         password=hashed_password,
-        ch_code=ch_code
+        ch_code=ch_code,
+        phone_number=phone_number
     )
     db.session.add(new_user)
     db.session.commit()
@@ -91,6 +119,37 @@ def login():
 def logout():
     session.pop('user_id', None)
     return jsonify({'message': 'Logged out successfully'}), 200
+
+@auth.route('/verify-phone', methods=['POST'])
+def verify_phone():
+    data = request.json
+    phone_number = data.get('phone_number')
+
+    if not phone_number:
+        return jsonify({'message': 'Phone number is required'}), 400
+    
+    user = User.query.filter_by(phone_number=phone_number).first()
+    if not user:
+        return jsonify({"error": "User with this phone number does not exist"}), 404
+
+    verification_code = str(random.randint(100000, 999999))
+    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=5)
+
+    phone_verification = PhoneVerification(
+        phone_number=phone_number,
+        verification_code=verification_code,
+        expires_at=expires_at,
+        user_id=user.id
+    )
+    try:
+        db.session.add(phone_verification)
+        db.session.commit()
+
+        print(f"Verification code sent to {phone_number}: {verification_code}")
+        return jsonify({"success": "Verification code sent", "phone_number": phone_number}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     auth.run(debug=True, host='localhost', port=5000)
