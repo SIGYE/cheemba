@@ -76,7 +76,7 @@ def login():
 
     # Validate fields
     if not email or not password or not ch_code:
-        return jsonify({'message': 'Username and password and ch_code are required'}), 400
+        return jsonify({'message': 'Email, password, and Cheemba code are required'}), 400
 
     # Find the user by email
     user = User.query.filter_by(email=email).first()
@@ -84,9 +84,10 @@ def login():
     if not user or not bcrypt.check_password_hash(user.password, password):
         return jsonify({'message': 'Invalid credentials'}), 401
 
-    # Set user session
-    session['user_id'] = user.id
-    return jsonify({'message': 'Login successful'}), 200
+    # Include username in response
+    return jsonify({'message': 'Login successful', 'username': user.name}), 200
+
+
 
 @auth.route('/logout', methods=['POST'])
 def logout():
