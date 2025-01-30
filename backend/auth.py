@@ -143,6 +143,12 @@ def verify_phone():
     )
     try:
         db.session.add(phone_verification)
+
+        notification = Notifications(
+            user_id=user.id,
+            message=f"Your verification code is {verification_code}. It expires in 5 minutes"
+        )
+        db.session.add(notification)
         db.session.commit()
 
         print(f"Verification code sent to {phone_number}: {verification_code}")
@@ -150,6 +156,23 @@ def verify_phone():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+@auth.route('/notifications/<int:user_id>', methods=['GET'])
+def get_notifications(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    notifications = Notifications.query.filter_by(user_id=user_id).all()
+    notification_list = [
+        {
+            "id": notification.id,
+            "message": notification.message,
+            "created_at": notification.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        for notification in notifications
+    ]   
+    return jsonify({"notifications": notification_list}), 200
 
 if __name__ == '__main__':
     auth.run(debug=True, host='localhost', port=5000)
