@@ -5,11 +5,13 @@ from flask_bcrypt import Bcrypt
 from flask_cors import CORS
 import datetime
 import random
+import jwt
 import re
 from clicksend_client import SmsMessage, SMSApi
 from clicksend_client.rest import ApiException
 import os
 from dotenv import load_dotenv
+from functools import wraps
 
 load_dotenv()
 
@@ -29,6 +31,10 @@ CLICKSEND_API_KEY = os.getenv('CLICK_SEND_SMS_API_KEY')
 configuration = clicksend_client.Configuration()
 configuration.username = CLICKSEND_USERNAME
 configuration.password = CLICKSEND_API_KEY
+
+# Jwt key generation
+#  Keys in .env and .env hidden in gitignore
+auth.config['JWT_SECRET_KEY']=os.getenv('JWT_SECRET_KEY')
 
 sms_api = SMSApi(clicksend_client.ApiClient(configuration))
 
@@ -62,7 +68,7 @@ class Notifications(db.Model):
     user = db.relationship('User', backref=db.backref('notifications', lazy=True))
 
 with auth.app_context():
-    db.drop_all()
+    # db.drop_all()
     db.create_all()
 
 @auth.route('/verify-phone', methods=['POST'])
@@ -203,13 +209,47 @@ def login():
     if not user or not bcrypt.check_password_hash(user.password, password):
         return jsonify({'message': 'Invalid credentials'}), 401
 
-    session['user_id'] = user.id
-    return jsonify({'message': 'Login successful', 'username': user.name}), 200
+    token = jwt.encode({
+        'user_id': user.id,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)  
+    }, auth.config['JWT_SECRET_KEY'], algorithm='HS256')
+
+    return jsonify({
+        'message': 'Login successful',
+        'username': user.name,
+        'token': token 
+    }), 200
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+
+        if not token:
+            return jsonify({'message': 'Token is missing'}), 401
+
+        try:
+            # Remove 'Bearer ' from the token string
+            if token.startswith('Bearer '):
+                token = token.split(' ')[1]
+
+            # Decode the token
+            data = jwt.decode(token, auth.config['JWT_SECRET_KEY'], algorithms=['HS256'])
+            current_user = User.query.get(data['user_id'])
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Invalid token'}), 401
+
+        return f(current_user, *args, **kwargs)
+
+    return decorated
 
 @auth.route('/logout', methods=['POST'])
 def logout():
     session.pop('user_id', None)
     return jsonify({'message': 'Logged out successfully'}), 200
+
 
 @auth.route('/notifications/<int:user_id>', methods=['GET'])
 def get_notifications(user_id):
@@ -227,6 +267,18 @@ def get_notifications(user_id):
         for notification in notifications
     ]   
     return jsonify({"notifications": notification_list}), 200
+
+@auth.route('/profile', methods=['GET'])
+@token_required
+def get_profile(current_user):
+    return jsonify({
+        'name': current_user.name,
+        'email': current_user.email,
+        'ch_code': current_user.ch_code,
+        'marital_status': current_user.marital_status,
+        'phone_number': current_user.phone_number,
+        'location': current_user.location
+    }), 200
 
 if __name__ == '__main__':
     auth.run(debug=True, host='0.0.0.0', port=5000)
